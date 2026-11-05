@@ -1,0 +1,178 @@
+---
+title: ""
+author: ""
+format: typst
+editor: visual
+fontsize: 12pt
+---
+
+UNIVERSIDAD DE COSTA RICA
+
+FACULTAD DE CIENCIAS
+
+ESCUELA DE MATEMÁTICAS
+
+DEPARTAMENTO DE CIENCIAS ACTUARIALES
+
+Curso:
+
+Herramientas de ciencias de datos I
+
+Informe ejecutivo
+
+Estudiante:
+
+Andrés Francisco Torres Moraga-C5k247
+
+# Introducción
+
+El *speedcubing* es el deporte donde el objetivo es resolver el cubo de Rubik lo más rápido posible. Se escogió la categoría 3x3x3 debido a que es la versión más popular y conocida de esta disciplina. La práctica del deporte demanda reconocimiento de patrones, memoria muscular, memoria espacial y otras habilidades de alta relevancia para el desarrollo cognitivo humano. Para este estudio, se utilizó la base de datos oficial de la World Cube Association (WCA).
+
+Asimismo, se analizan los resultados de las pruebas PISA bajo la premisa de que las destrezas requeridas en el *speedcubing* pueden entrelazarse con habilidades académicas evaluadas a nivel internacional. Adicionalmente, se incorporaron los datos del PIB per cápita, ya que el desempeño en esta disciplina depende en parte de la capacidad adquisitiva y el acceso a recursos especializados, factores que también guardan una estrecha correlación con el desempeño académico estructural de los países.
+
+Por consiguiente, este estudio explora si existe una relación estadísticamente significativa entre los puntajes de las pruebas PISA y los tiempos de resolución, controlando el efecto del PIB per cápita. Para evitar sesgos por muestras reducidas, se estableció un umbral mínimo de 300 participantes por país en la WCA, filtrando únicamente a aquellas naciones con registros concurrentes en PISA y en los indicadores del Banco Mundial.
+
+# Objetivo
+
+Evaluar la relación estadística entre los tiempos de resolución de la categoría 3x3x3 en las competencias registradas en la World Cube Association (WCA) y el rendimiento en las pruebas PISA (2000-2022), incorporando el PIB per cápita como variable de contexto socioeconómico para analizar posibles patrones de asociación a nivel global.
+
+# Datos
+
+Para el desarrollo de este análisis se utilizaron tres fuentes principales de información:
+
+- **Rendimiento Académico (PISA):** Datos históricos extraídos mediante el paquete *learningtower* de R (evaluaciones del 2000 al 2022), calculando un promedio general por país de todas las categorías evaluadas.
+
+- **Contexto Económico (PIB per cápita):** Datos del Producto Interno Bruto per cápita a precios constantes (en dólares de EE. UU. de 2015) entre 2000 y 2022 obtenidos a través del paquete *WDI* (World Development Indicators) del Banco Mundial, obteniendo un promedio histórico por país.
+
+- **Tiempos de Speedcubing (WCA):** Base de datos oficial de la World Cube Association con corte al 12 de octubre de 2026, calculando los tiempos promedio de resolución para la categoría 3x3x3 por país.
+
+Se aplicó un filtro de exclusión, descartando a los países con menos de 300 participantes históricos en la WCA para garantizar la fiabilidad estadística de los promedios nacionales.
+
+# Metodología
+
+La muestra final quedó conformada por **78 países** que cumplieron con todos los criterios de selección. Para examinar la relación entre las variables, se implementaron modelos de regresión lineal múltiple:
+
+- **Variable dependiente** ($Y$): El tiempo promedio de resolución del cubo 3x3x3 en la WCA por país (en segundos).
+
+- **Variables independientes** ($X$): El promedio histórico del PIB per cápita (transformado mediante su logaritmo natural $\log(\text{PIB})$ para normalizar su distribución) y los resultados promedio en las áreas de las pruebas PISA.
+
+Se evaluaron la significancia estadística ($p$-valor) y los coeficientes de impacto para aislar el efecto cognitivo del factor socioeconómico.
+
+# Resultados
+
+## AED
+
+Previo al ajuste de los modelos econométricos, se exploró el comportamiento de las variables principales:
+
+```{r}
+#| label: aed-distribucion-tiempos
+#| echo: false
+#| message: false
+#| warning: false
+
+library(ggplot2)
+
+wca.pib.pisa <- read.csv("wca.pib.pisa.csv")
+
+ggplot(wca.pib.pisa, aes(x = tiempo.promedio)) +
+  geom_histogram(
+    aes(y = after_stat(density)),
+    bins = 15,
+    fill = "steelblue",
+    color = "white",
+    alpha = 0.7
+  ) +
+  geom_density(color = "darkblue", linewidth = 1) +
+  labs(
+    title = "Figura 1. Distribución de los Tiempos Promedio de 
+    Resolución (3x3x3)",
+    subtitle = "Muestra filtrada: Países con más de 300 participantes en la WCA
+    (N = 78)",
+    x = "Tiempo Promedio de Resolución (segundos)",
+    y = "Densidad"
+  ) +
+  theme_minimal()
+
+```
+
+El histograma y la curva de densidad (Figura 1) muestran que los tiempos promedio de resolución se concentran mayoritariamente alrededor de los 20 segundos, con una ligera asimetría positiva característica. Esto puede responder al filtro aplicado de inclusión (países evaluados en PISA y con más de 300 atletas en WCA), evidenciando a su vez la existencia de naciones con mayor rezago en los tiempos de velocidad.
+
+```{r}
+#| label: aed-multivariado-pib
+#| echo: false
+#| message: false
+#| warning: false
+
+library(dplyr)
+
+wca.aed <- wca.pib.pisa %>%
+  mutate(estrato_pib = if_else(
+    log(promedio.pib.per.capital) > median(log(promedio.pib.per.capital), na.rm = TRUE),
+    "PIB Alto (> Mediana)",
+    "PIB Bajo/Medio (<= Mediana)"
+  ))
+
+ggplot(wca.aed,
+       aes(x = prom.lectura, y = tiempo.promedio, color = estrato_pib)) +
+  geom_point(alpha = 0.8, size = 2.5) +
+  geom_smooth(method = "lm",
+              se = FALSE,
+              linewidth = 1) +
+  labs(
+    title = "Figura 2. Efecto de Control: PISA Lectura vs  
+    tiempo WCA 3x3x3 según nivel del PIB per cápita",
+    subtitle = "Exploración multivariada del contexto socioeconómico",
+    x = "Promedio Histórico PISA (Lectura)",
+    y = "Tiempo Promedio (segundos)",
+    color = "Estrato Económico"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+Al segmentar la relación según la mediana del PIB per cápita (Figura 2), se observa claramente cómo el contexto socioeconómico modula la tendencia. El nivel de riqueza actúa como un factor de posicionamiento inicial: la línea de tendencia del estrato de PIB Alto (rosado) se ubica en un nivel de tiempos más bajo y constante, mientras que la del PIB Bajo/Medio (celeste) muestra una pendiente negativa más pronunciada y una dispersión vertical significativamente mayor.
+
+Asimismo, la Figura 2 evidencia un comportamiento diferenciado entre estratos: en los países de ingresos bajos y medios, incrementos en el rendimiento lector de PISA se asocian con reducciones sustanciales en los tiempos de resolución del cubo. En cambio, en los países de PIB alto, los tiempos se estabilizan en un rango homogéneo y altamente competitivo (alrededor de los 20 segundos), sugiriendo un efecto de saturación con el PIB per cápita. En conjunto, este comportamiento confirma que, si bien la riqueza facilita un punto de partida con menores tiempos promedio, no garantiza por sí sola el éxito, justificando la inclusión del PIB como variable de control para aislar el verdadero efecto de los resultados en pruebas PISA (lectura) en los modelos multivariados.
+
+## Resultados Metodología
+
+```{=typst}
+#v(1em)
+#align(left)[
+  #text(weight: "bold")[Tabla 1] \
+  #text(style: "italic")[Comparación de modelos de regresión múltiple (WCA 3x3x3 vs. PISA + log("PIB per cápita"))]
+]
+#v(0.5em)
+
+#table(
+  columns: (1.4fr, 1fr, 1fr, 1.2fr, 1.2fr, 1fr),
+  align: (left, center, center, center, center, center),
+  [*Área*], [$beta$ (PISA)], [$p$ (PISA)], [$beta$ (log PIB)], [$p$ (log PIB)], [$R^2$],
+  [Matemáticas], [$-0.0478$], [0.00097], [+0.1011], [0.8959 (NS)], [27.56%],
+  [Ciencias], [$-0.0552$], [0.00038], [+0.2761], [0.7200 (NS)], [29.22%],
+  [Lectura], [$-0.0608$], [0.00013], [+0.6704], [0.4073 (NS)], [31.09%]
+)
+```
+Los resultados indican que, al controlar por el nivel socioeconómico (PIB per cápita), el impacto de las pruebas PISA en todas las áreas se mantiene estadísticamente significativo ($p < 0.001$). Esto sugiere que las habilidades evaluadas por PISA aportan información predictiva sobre el desempeño en el speedcubing que trasciende la mera capacidad económica de las naciones.
+
+En particular, se constata una relación inversa consistente entre las puntuaciones PISA y el tiempo promedio de resolución. El área de Lectura registró la capacidad explicativa más elevada ($R^2 = 31.09\%$), seguida por Ciencias ($29.22\%$) y Matemáticas ($27.56\%$). Por su parte, el coeficiente del $\log(\text{PIB per cápita})$ no resultó estadísticamente significativo en ninguno de los modelos multivariados ($p > 0.40$), indicando que su efecto directo queda absorbido al incorporar la variabilidad educativa de los países. Cabe enfatizar que estos hallazgos deben interpretarse como asociaciones macroecológicas y no como relaciones de causalidad individual.
+
+# Conclusiones
+
+- **Relevancia del rendimiento cognitivo sobre el factor socioeconómico:** Los modelos multivariados demuestran que las puntuaciones medias en las pruebas PISA poseen una asociación inversa estadísticamente significativa con los tiempos de resolución en la WCA. Al incluir ambas variables, el efecto directo del $\log(\text{PIB per cápita})$ deja de ser estadísticamente significativo ($p > 0.40$), lo que evidencia que la riqueza nacional actúa como una condición facilitadora inicial (desplazando la interceptación) (ver Figura 2), pero es el rendimiento cognitivo el que determina la pendiente de mejora en la velocidad (ver Figura 2).
+
+- **Poder explicativo y el rol del aprendizaje autónomo:** Los modelos ajustados explican entre el $27.5\%$ y el $31.1\%$ de la variabilidad total de los tiempos globales de resolución ($R^2 \approx 0.28 - 0.31$). Que el área de Lectura presente el mayor ajuste y significancia ($\beta = -0.0608, p = 0.00013$) sugiere que la comprensión lectora y la capacidad de procesamiento de información para el aprendizaje autónomo de algoritmos desempeñan un rol predominante en el desarrollo del *speedcubing*.
+
+- **Consideraciones metodológicas y alcance del estudio:** Si bien el análisis transversal a nivel agregado revela patrones de asociación estadísticamente sólidos, los resultados corresponden a un plano macroecológico y poblacional, por lo que deben interpretarse evitando la falacia ecológica a nivel individual. Este trabajo sienta las bases para que futuras investigaciones exploren dinámicas temporales mediante modelos de datos en panel o incorporen variables demográficas adicionales.
+
+# Referencias
+
+Arel-Bundock, V. (2026). WDI: World Development Indicators and other World Bank data (Versión 2.8.0) \[Software de computación\]. CRAN. https://CRAN.R-project.org/package=WDI
+
+Banco Mundial. (2026). World Development Indicators \[Base de datos\]. https://data.worldbank.org/
+
+Organización para la Cooperación y el Desarrollo Económicos. (2023). PISA 2022 Results \[Base de datos\]. https://www.oecd.org/pisa/
+
+Wang, K., Yacobellis, P., Siregar, E., Romanes, S., Fitter, K., Dalla Riva, G. V., Cook, D., Tierney, N., Dingorkar, P., Subramanian, S. S., & Chen, G. R. (2026). learningtower: OECD PISA datasets from 2000-2022 in an easy-to-use format (Versión 2.0.0) \[Software de computación\]. CRAN. https://CRAN.R-project.org/package=learningtower
+
+World Cube Association. (s. f.). Resultados de la WCA. Recuperado el 12 de octubre de 2026, de https://www.worldcubeassociation.org/export/results
