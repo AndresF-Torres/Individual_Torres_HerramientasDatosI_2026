@@ -1,2 +1,6 @@
-data/
-cod/limpia data/
+*.Rhistory
+.git
+.Rproj
+.Rproj.user
+cod/limpia data/WCA_export_results.tsv
+cod/limpia data/tiempos.y.paises.333.csv

@@ -1,0 +1,262 @@
+---
+title: "creacion de tablas"
+format: html
+editor: visual
+---
+
+primero se cargan los datos y se procesa en un excel (datos de la World Cube Association (WCA) del 12 de octubre del 2026). En el script cargar datos WCA
+
+Se cargan los datos de las pruebas pisa
+
+```{r}
+library(learningtower)
+library(tidyverse)
+
+# 2. Cargar la tabla completa de datos escolares
+datos.pisa <- load_student("all")
+
+# 3. Calcular el promedio de matemáticas, lectura y ciencias por país
+# (Los datos ya vienen estructurados sin caracteres extraños ni filas rotas)
+tabla.promedios <- datos.pisa %>%
+  summarise(
+    prom.matematicas = mean(math, na.rm = TRUE),
+    prom.lectura     = mean(read, na.rm = TRUE),
+    prom.ciencias    = mean(science, na.rm = TRUE),
+    total.estudiantes    = n(),
+    .by = country
+  ) %>% 
+  rename(pais = country)
+
+# 4. Ver los resultados más recientes en tu pantalla
+print(tabla.promedios)
+
+# # 5. Guardar la tabla limpia directamente en tu computadora como CSV
+write.csv(tabla.promedios, "promedios_pisa.csv", row.names = FALSE)
+```
+
+se unen ambas bases de datos tiene el sesgo de que solo se toma en cuenta paises que paarticipen en las pruebas pisa
+
+```{r}
+library(tidyverse)
+
+promedios.pisa <- read.csv("promedios_pisa.csv")
+promedios.wca <- read.csv("tiempos.promedio.por.pais.csv")
+
+wca.pisa <- left_join(promedios.wca, promedios.pisa, by = "pais") %>% 
+  filter(n>300,
+         !is.na(prom.matematicas)
+         )
+# corelacion.pisa <- cor(
+#   wca.pisa$tiempo.promedio,
+#   wca.pisa$prom.matematicas,
+#   method = "pearson"
+# )
+
+modelo.matematicas <- lm(tiempo.promedio ~ prom.matematicas, data = wca.pisa)
+modelo.lectura <- lm(tiempo.promedio ~ prom.lectura, data = wca.pisa)
+modelo.ciencias <- lm(tiempo.promedio ~ prom.ciencias, data = wca.pisa)
+
+summary(modelo.matematicas)
+
+summary(modelo.ciencias)
+
+summary(modelo.lectura)
+
+```
+
+se busca datos de la pib per capital indicador del PIB per cápita a precios constantes (en dólares de EE. UU. de 2015) (ignora a twn )
+
+```{r}
+library(WDI)
+promedios.wca <- read.csv("tiempos.promedio.por.pais.csv")
+WDIsearch("gdp per capita")
+
+pib.per.capital <- WDI(
+  country = promedios.wca$pais, 
+  indicator = "NY.GDP.PCAP.KD", 
+  start = 2000, 
+  end = 2022
+  ) %>% 
+  summarise(
+    promedio.pib.per.capital = mean(NY.GDP.PCAP.KD,  na.rm = TRUE),
+    .by = iso3c
+  ) %>%   
+  rename(pais = iso3c)
+
+
+wca.pib.per.capital <- left_join(promedios.wca, pib.per.capital, by = "pais") %>%
+  filter(n>300,
+         !is.na(promedio.pib.per.capital)
+         )
+
+corelacion <- cor(
+  wca.pib.per.capital$tiempo.promedio,
+  wca.pib.per.capital$promedio.pib.per.capital,
+  method = "pearson"
+)
+
+modelo.pib <- lm(tiempo.promedio ~ promedio.pib.per.capital, data = wca.pib.per.capital)
+
+```
+
+se hace una mezcla de los 3 valores
+
+```{r}
+# wca.pib.pisa <- left_join(wca.pisa, pib.per.capital, by = "pais")
+# 
+# write.csv(wca.pib.pisa, "wca.pib.pisa.csv", row.names = FALSE)
+
+wca.pib.pisa <- read.csv("wca.pib.pisa.csv")
+
+modelo.pib.matematicas <- lm(tiempo.promedio ~ prom.matematicas + log(promedio.pib.per.capital),
+                             data = wca.pib.pisa)
+modelo.lectura <- lm(tiempo.promedio ~ prom.lectura + log(promedio.pib.per.capital),
+                     data = wca.pib.pisa)
+modelo.ciencias <- lm(tiempo.promedio ~ prom.ciencias + log(promedio.pib.per.capital),
+                      data = wca.pib.pisa)
+
+modelo.pib <- lm(tiempo.promedio ~ promedio.pib.per.capital, data = wca.pib.pisa)
+
+
+summary(modelo.pib)
+
+
+
+
+
+```
+
+
+```{r}
+library(dplyr)
+library(knitr)
+library(countrycode)
+
+wca.pib.pisa2<- wca.pib.pisa %>% 
+  mutate(pais = countrycode(pais, origin = 'iso3c', destination = 'iso.name.en')
+  )
+
+
+wca_rankeado <- wca.pib.pisa2 %>%
+  arrange(tiempo.promedio) %>%
+  mutate(Ranking = row_number())
+
+# 2. Extraer los tres grupos de interés
+top_rapidos <- wca_rankeado %>%
+  slice_head(n = 5) 
+
+costa_rica <- wca_rankeado %>%
+  filter(pais %in% c("CRI", "CRC", "Costa Rica")) 
+
+top_lentos <- wca_rankeado %>%
+  slice_tail(n = 5) 
+
+# 3. Unir, eliminar duplicados si CR estuviera en un extremo y formatear
+tabla_anexo <- bind_rows(top_rapidos, costa_rica, top_lentos) %>%
+  distinct(pais, .keep_all = TRUE) %>%
+  transmute(
+    `Puesto` = paste0(Ranking),
+    `País` = pais,
+    `Tiempo Prom. (s)` = round(tiempo.promedio, 2),
+    `PISA Lectura` = round(prom.lectura, 1),
+    `PISA Matematicas` = round(prom.matematicas, 1),
+    `PISA Ciencias` = round(prom.ciencias, 1),
+    `PIB per cápita ($)` = format(round(promedio.pib.per.capital, 0), big.mark = ",")
+  )
+
+# 4. Generar tabla lista para Quarto / Typst / RMarkdown
+kable(tabla_anexo, align = "lclrrrr")
+```
+
+```{r}
+library(dplyr)
+library(knitr)
+
+# 1. Seleccionar variables de interés y calcular matriz de correlación de Pearson
+vars_corr <- wca.pib.pisa %>%
+  select(`Tiempo WCA` = tiempo.promedio, 
+         `PISA Lectura` = prom.lectura, 
+         `PISA Matemáticas` = prom.matematicas, 
+         `PISA Ciencias` = prom.ciencias, 
+         `Log(PIB)` = promedio.pib.per.capital) %>%
+  mutate(`Log(PIB)` = log(`Log(PIB)`))
+
+matriz_corr <- round(cor(vars_corr, use = "complete.obs"), 3)
+
+# 2. Convertir a tabla limpia para reporte/anexo
+tabla_corr_df <- as.data.frame(matriz_corr)
+
+# Imprimir en formato limpio para Quarto / Typst / Markdown
+kable(tabla_corr_df, caption = "Matriz de Correlaciones Bivariadas de Pearson")
+```
+
+
+
+$$\text{Tiempo}_i = \beta_0 + \beta_1 \text{PISA}_{i} + \beta_2 \log(\text{PIB per capita}) + \varepsilon_i$$
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(broom)
+
+# 1. Crear los dos estratos económicos respecto a la mediana del PIB per cápita
+mediana_pib <- median(wca.pib.pisa$promedio.pib.per.capital, na.rm = TRUE)
+
+datos_estratos <- wca.pib.pisa %>%
+  mutate(
+    Estrato = ifelse(
+      promedio.pib.per.capital > mediana_pib,
+      "PIB Alto (> Mediana)",
+      "PIB Bajo/Medio (<= Mediana)"
+    )
+  )
+
+# 2. Calcular el nivel predictivo (R2, pendiente y p-valor) por separado
+resultados_estratos <- datos_estratos %>%
+  group_by(Estrato) %>%
+  summarise(
+    N = n(),
+    Intercepto = round(coef(lm(tiempo.promedio ~ prom.lectura))[1], 2),
+    Pendiente_PISA = round(coef(lm(tiempo.promedio ~ prom.lectura))[2], 4),
+    R2_porcentaje = round(summary(lm(tiempo.promedio ~ prom.lectura))$r.squared * 100, 2),
+    p_valor = signif(summary(lm(tiempo.promedio ~ prom.lectura))$coefficients[2, 4], 3)
+  )
+
+print(resultados_estratos)
+
+# 3. Generar el gráfico con paneles separados (facet_wrap)
+ggplot(datos_estratos, aes(x = prom.lectura, y = tiempo.promedio, color = Estrato)) +
+  geom_point(size = 2.8, alpha = 0.85) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1.1) +
+  facet_wrap(~ Estrato, scales = "free_x") +
+  scale_color_manual(values = c(
+    "PIB Alto (> Mediana)" = "#F8766D",
+    "PIB Bajo/Medio (<= Mediana)" = "#00BFC4"
+  )) +
+  labs(
+    title = "Efecto de PISA Lectura según Estrato Económico (Separado)",
+    subtitle = "Comparación de pendientes e intervalos de confianza al 95%",
+    x = "Promedio Histórico PISA (Lectura)",
+    y = "Tiempo Promedio WCA (segundos)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold", size = 11)
+  )
+```
+
+
+
+# Referencias
+
+Arel-Bundock, V. (2026). WDI: World Development Indicators and other World Bank data (Versión 2.8.0) \[Software de computación\]. CRAN. https://CRAN.R-project.org/package=WDI
+
+Banco Mundial. (2026). World Development Indicators \[Base de datos\]. https://data.worldbank.org/
+
+Organización para la Cooperación y el Desarrollo Económicos. (2023). PISA 2022 Results \[Base de datos\]. https://www.oecd.org/pisa/
+
+Wang, K., Yacobellis, P., Siregar, E., Romanes, S., Fitter, K., Dalla Riva, G. V., Cook, D., Tierney, N., Dingorkar, P., Subramanian, S. S., & Chen, G. R. (2026). learningtower: OECD PISA datasets from 2000-2022 in an easy-to-use format (Versión 2.0.0) \[Software de computación\]. CRAN. https://CRAN.R-project.org/package=learningtower
+
+World Cube Association. (s. f.). Resultados de la WCA. Recuperado el 12 de octubre de 2026, de https://www.worldcubeassociation.org/export/results
